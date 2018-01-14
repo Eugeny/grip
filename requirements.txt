@@ -1,2 +1,4 @@
 click==6.7
 prompt-toolkit==1.0.15
+coloredlogs==8.0
+virtualenv==15.1.0
