@@ -1,5 +1,4 @@
 import os
-import logging
 import multiprocessing.pool
 import click
 import pkg_resources
@@ -11,22 +10,10 @@ from pip.locations import USER_CACHE_DIR
 from pip.wheel import WheelCache
 from pip._vendor.packaging.version import Version
 import pip.utils.logging
-import coloredlogs
+import grip.ui as ui
 from .app import App
 from .model.requirements import Requirements
 from .model.package import Package
-
-
-coloredlogs.install(
-    level='INFO',
-    fmt='%(message)s',
-    level_styles={
-        'info': {
-            'color': 'white',
-            'bold': True,
-        }
-    }
-)
 
 app = App()
 
@@ -43,21 +30,15 @@ def cli(glob=False, cwd=None, interactive=False):
 
     if glob:
         if app.virtualenv:
-            logging.error('Cannot act on the global site when running inside a virtualenv shell.')
-            logging.error('Run `deactivate` first.')
+            ui.error('Cannot act on the global site when running inside a virtualenv shell.')
+            ui.error('Run `deactivate` first.')
             sys.exit(1)
     else:
         virtualenv = app.locate_virtualenv()
         if not virtualenv:
-            logging.warn('Could not find a local virtualenv.')
+            ui.warn('Could not find a local virtualenv.')
             if app.interactive:
-                logging.info('Create one (y/n)?')
-                while True:
-                    i = input()
-                    if i.lower() in 'yn':
-                        break
-
-                if i.lower() == 'y':
+                if ui.yn('Create one?'):
                     print('Folder name (venv): ', end='')
                     name = input() or 'venv'
                     print('Interpreter (python3): ', end='')
@@ -66,13 +47,13 @@ def cli(glob=False, cwd=None, interactive=False):
                     app.create_virtualenv(path, interpreter)
                     app.set_virtualenv(path)
                 else:
-                    logging.error('Aborting.')
+                    ui.error('Aborting.')
                     sys.exit(1)
             else:
-                logging.error('Aborting.')
+                ui.error('Aborting.')
                 sys.exit(1)
 
-    logging.info('Operating on: %s', app.site_packages)
+    ui.info('Operating on:', app.site_packages)
 
 
 
