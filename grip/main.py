@@ -25,6 +25,7 @@ app = App()
 def cli(glob=False, cwd=None, interactive=False):
     if cwd:
         os.chdir(cwd)
+        ui.info('Working in', os.getcwd())
 
     app.interactive = interactive
 
@@ -35,7 +36,9 @@ def cli(glob=False, cwd=None, interactive=False):
             sys.exit(1)
     else:
         virtualenv = app.locate_virtualenv()
-        if not virtualenv:
+        if virtualenv:
+            app.set_virtualenv(virtualenv)
+        else:
             ui.warn('Could not find a local virtualenv.')
             if app.interactive:
                 if ui.yn('Create one?'):
@@ -55,6 +58,16 @@ def cli(glob=False, cwd=None, interactive=False):
 
     ui.info('Operating on:', app.site_packages)
 
+
+@cli.command()
+@click.argument('package')
+def install(package=None):
+    app.perform_install(package)
+
+
+@cli.command()
+def list():
+    app.perform_list()
 
 
 def load_installed(path):

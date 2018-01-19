@@ -27,6 +27,10 @@ def do_log(style, *parts):
         *parts,
     )
 
+def bold(text):
+    return colored(text, attrs=['bold'])
+
+
 for style in styles:
     locals()[style] = lambda *parts, style=style: do_log(style, *parts)
 
