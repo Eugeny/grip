@@ -1,15 +1,7 @@
 import os
-import multiprocessing.pool
 import click
 import pkg_resources
 import sys
-from pip.req.req_file import parse_requirements
-from pip.download import PipSession, path_to_url
-from pip.index import PackageFinder, FormatControl, Link
-from pip.locations import USER_CACHE_DIR
-from pip.wheel import WheelCache
-from pip._vendor.packaging.version import Version
-import pip.utils.logging
 import grip.ui as ui
 from .app import App
 from .model.requirements import Requirements
@@ -65,8 +57,8 @@ def install(package=None):
     app.perform_install(package)
 
 
-@cli.command()
-def list():
+@cli.command('list')
+def cmd_list():
     app.perform_list()
 
 
@@ -156,59 +148,4 @@ def sync():
 
 @cli.command()
 def outdated():
-
-    session = PipSession(cache=os.path.join(USER_CACHE_DIR, 'http'))
-    finder = PackageFinder([], ['https://pypi.org/simple/'], session=session)
-
-    installed = load_installed('venv/lib/python3.6/site-packages')
-
-    reqs = list(parse_requirements('requirements.txt', session=session))
-
-    def process_single(req):
-        pip.utils.logging._log_state.indentation = 0
-        req.req.name = pkg_resources.safe_name(req.req.name).lower()
-        if req.name in installed:
-            installed_version = Version(installed[req.name].version)
-        else:
-            installed_version = None
-
-        all_candidates = finder.find_all_candidates(req.name)
-        compatible_versions = set(
-            req.req.specifier.filter(
-                [str(c.version) for c in all_candidates],
-                prereleases=False
-            )
-        )
-        applicable_candidates = [
-            c for c in all_candidates if str(c.version) in compatible_versions
-        ]
-
-        best_candidate = None
-        best_release = None
-        if applicable_candidates:
-            best_candidate = max(applicable_candidates, key=finder._candidate_sort_key)
-        if all_candidates:
-            best_release = max(all_candidates, key=finder._candidate_sort_key)
-
-        if best_release and best_release.version > (installed_version or Version('0')):
-            return (
-                req.name,
-                installed_version,
-                best_candidate.version if best_candidate else None,
-                best_release.version if best_release else None,
-            )
-
-    with multiprocessing.pool.ThreadPool(processes=16) as pool:
-        with click.progressbar(pool.imap_unordered(process_single, reqs), length=len(reqs), label='Checking latest versions') as bar:
-            results = [x for x in bar if x]
-
-    click.secho(f'Outdated packages: {len(results)}', fg='white', bold=True)
-    for result in sorted(results, key=lambda x: x[0]):
-        click.echo(f' {result[0]}:\n  {click.style(str(result[1] or "Not installed"), fg="yellow")}', nl=False)
-        if result[2] and result[2] > (result[1] or Version('0')):
-            click.echo(f' -> {click.style(str(result[2]), fg="cyan")}', nl=False)
-        if result[3]:
-            if result[3] > (result[1] or Version('0')):
-                click.echo(f' (latest: {click.style(str(result[3]), fg="green")})')
-            else:
-                click.echo(' (latest)')
+    app.perform_outdated()

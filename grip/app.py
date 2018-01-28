@@ -3,6 +3,13 @@ import os
 import sys
 import grip.ui as ui
 from pip.commands import InstallCommand
+from pip.download import PipSession
+from pip.index import PackageFinder
+from pip.locations import USER_CACHE_DIR
+import pip.utils.logging
+import multiprocessing.pool
+from pip._vendor.packaging.version import Version
+from pip.req.req_file import parse_requirements
 
 from virtualenv import create_environment
 
@@ -14,8 +21,14 @@ def sanitize_name(name):
 class PackageDep:
     def __init__(self, req):
         self.req = req
-        self.name = sanitize_name(req.name)
         self.resolved_to = None
+
+    @property
+    def name(self):
+        return sanitize_name(self.req.name)
+
+    def matches_version(self, version):
+        return len(list(self.req.specifier.filter([str(version)]))) > 0
 
     def __str__(self):
         return str(self.req)
@@ -24,11 +37,17 @@ class PackageDep:
 class Package:
     def __init__(self, name, version):
         self.name = name
-        self.version = version
+        if type(version) == str:
+            self.version = Version(version)
+        else:
+            self.version = version
         self.deps = []
 
     def __str__(self):
         return f'{self.name}@{self.version}'
+
+    def __gt__(self, other):
+        return self.name > other.name
 
     def prnt(self):
         print(self)
@@ -41,6 +60,12 @@ class Package:
         print()
 
 
+class PackageGraph(list):
+    def find(self, name):
+        name = sanitize_name(name)
+        for pkg in self:
+            if sanitize_name(pkg.name) == name:
+                return pkg
 
 
 class App:
@@ -51,9 +76,18 @@ class App:
         if 'VIRTUAL_ENV' in os.environ:
             self.set_virtualenv(os.environ['VIRTUAL_ENV'])
 
+        self.session = PipSession(cache=os.path.join(USER_CACHE_DIR, 'http'))
+        self.finder = PackageFinder(
+            [],
+            ['https://pypi.org/simple/'],
+            session=self.session
+        )
+
     def set_virtualenv(self, path):
         self.virtualenv = path
-        self.site_packages = os.path.join(path, 'lib', f'python{sys.version[:3]}', 'site-packages')
+        self.site_packages = os.path.join(
+            path, 'lib', f'python{sys.version[:3]}', 'site-packages'
+        )
 
     def create_virtualenv(self, path, interpreter):
         create_environment(
@@ -90,19 +124,18 @@ class App:
                 dep.resolved_to = None
                 for candidate in pkgs:
                     if candidate.name == dep.name:
-                        if list(dep.req.specifier.filter([candidate.version])):
+                        if dep.matches_version(candidate.version):
                             dep.resolved_to = candidate
                             break
 
-        return sorted(pkgs, key=lambda x: x.name)
+        return PackageGraph(sorted(pkgs, key=lambda x: x.name))
 
     def perform_install(self, spec):
         command = InstallCommand()
         command.main(['--no-deps', '--target', self.site_packages, '--ignore-installed', '--upgrade', spec])
 
     def _pkg_str(self, pkg):
-        return ui.bold(pkg.name) + ui.cyan('@' + pkg.version)
-
+        return ui.bold(pkg.name) + ui.cyan('@' + str(pkg.version))
 
     def perform_list(self):
         pkgs = self.load_dependency_graph()
@@ -116,3 +149,58 @@ class App:
                     print(ui.green('→'), self._pkg_str(dep.resolved_to))
                 else:
                     print(ui.red('→ none'))
+
+    def perform_outdated(self):
+        pkgs = self.load_dependency_graph()
+        reqs = list(parse_requirements('requirements.txt', session=self.session))
+
+        def process_single(req):
+            # TODO
+            pip.utils.logging._log_state.indentation = 0
+
+            installed = pkgs.find(req.name)
+
+            if not installed:
+                return
+
+            all_candidates = self.finder.find_all_candidates(req.name)
+            compatible_versions = set(
+                req.req.specifier.filter(
+                    [str(c.version) for c in all_candidates],
+                    prereleases=False
+                )
+            )
+
+            applicable_candidates = [
+                c for c in all_candidates if str(c.version) in compatible_versions
+            ]
+
+            best_candidate = None
+            best_release = None
+            if applicable_candidates:
+                best_candidate = max(applicable_candidates, key=self.finder._candidate_sort_key)
+            if all_candidates:
+                best_release = max(all_candidates, key=self.finder._candidate_sort_key)
+
+            if best_release and (not installed or best_release.version > installed.version):
+                return (
+                    installed,
+                    best_candidate.version if best_candidate else None,
+                    best_release.version if best_release else None,
+                )
+
+        import click
+        with multiprocessing.pool.ThreadPool(processes=16) as pool:
+            with click.progressbar(pool.imap_unordered(process_single, reqs), length=len(reqs), label='Checking latest versions') as bar:
+                results = [x for x in bar if x]
+
+        rows = []
+        for installed, best_candidate, best_release in sorted(results, key=lambda x: x[0]):
+            rows.append((
+                self._pkg_str(installed),
+                ui.cyan(best_candidate) if best_candidate and best_candidate > installed.version else ui.darkwhite(best_candidate),
+                ui.green(best_release) if best_release and best_release > installed.version else ui.darkwhite(best_release),
+            ))
+
+        ui.table(['Installed', 'Available', 'Latest'], rows)
+        ui.info(ui.bold(str(len(results))), 'outdated packages')

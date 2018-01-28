@@ -2,7 +2,7 @@ import sys
 from termcolor import colored
 from click import getchar
 from contextlib import contextmanager
-
+from .ansi import strip_ansi
 
 styles = {
     'info': ['info ', 'cyan'],
@@ -21,11 +21,13 @@ colors = [
     'white',
 ]
 
-def do_log(style, *parts):
+
+def do_log(style, *parts, attrs=['bold']):
     print(
-        colored(styles[style][0], styles[style][1], attrs=['bold']),
+        colored(styles[style][0], styles[style][1], attrs=attrs),
         *parts,
     )
+
 
 def bold(text):
     return colored(text, attrs=['bold'])
@@ -36,6 +38,9 @@ for style in styles:
 
 for color in colors:
     locals()[color] = lambda text, color=color: colored(text, color)
+
+for color in colors:
+    locals()['dark' + color] = lambda text, color=color: colored(text, color, attrs=['dark'])
 
 
 def yn(*parts):
@@ -77,3 +82,18 @@ def prompt(*parts, default=None, validate=lambda x: x):
         break
 
     return result
+
+
+def table(header, rows, pad=2):
+    max_w = [0] * len(header)
+    for row in [header] + rows:
+        for index, item in enumerate(row):
+            max_w[index] = max(max_w[index], len(strip_ansi(item)))
+    width = pad * (len(header) - 1) + sum(max_w)
+
+    print()
+    for row in [header, [colored('-' * width, 'white', attrs=['dark'])]] + rows:
+        for index, item in enumerate(row):
+            print(str(item) + ' ' * (max_w[index] + pad - len(strip_ansi(item))), end='')
+        print()
+    print()

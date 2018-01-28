@@ -2,6 +2,9 @@ prompt-toolkit==1.0.15
 coloredlogs==8.0
 virtualenv==15.1.0
 
+#dev
+flake8==3.5.0
+
 # ui
 click==6.7
 termcolor==1.1.0

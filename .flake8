@@ -1,0 +1,3 @@
+[flake8]
+ignore=E501,D103,C901,D203
+exclude = .git,__pycache__,help,static,misc,locale,templates,tests,deployment,migrations
