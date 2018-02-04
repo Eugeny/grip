@@ -10,14 +10,28 @@ from .model.package import Package
 app = App()
 
 
-@click.group()
+class AliasedGroup(click.Group):
+    def get_command(self, ctx, cmd_name):
+        rv = click.Group.get_command(self, ctx, cmd_name)
+        if rv is not None:
+            return rv
+        matches = [x for x in self.list_commands(ctx)
+                   if x.startswith(cmd_name)]
+        if not matches:
+            return None
+        elif len(matches) == 1:
+            return click.Group.get_command(self, ctx, matches[0])
+        ctx.fail('Too many matches: %s' % ', '.join(sorted(matches)))
+
+
+@click.group(cls=AliasedGroup)
 @click.option('--global', '-g', 'glob', is_flag=True, default=False, help='Act on the global site, not the local virtualenv')
 @click.option('--cwd', '-d', default=None, help='Working directory')
 @click.option('--interactive/--noninteractive', '-i/-n', default=lambda: os.isatty(0), help='Allow user interaction')
 def cli(glob=False, cwd=None, interactive=False):
     if cwd:
         os.chdir(cwd)
-        ui.info('Working in', os.getcwd())
+        ui.debug('Working in', os.getcwd())
 
     app.interactive = interactive
 

@@ -2,13 +2,14 @@ import pkg_resources
 import os
 import sys
 import grip.ui as ui
-from pip.commands import InstallCommand
+from pip.commands import InstallCommand, UninstallCommand
 from pip.download import PipSession
 from pip.index import PackageFinder
 from pip.locations import USER_CACHE_DIR
 import pip.utils.logging
 import multiprocessing.pool
 from pip._vendor.packaging.version import Version
+from pip._vendor.packaging.requirements import Requirement
 from pip.req.req_file import parse_requirements
 
 from virtualenv import create_environment
@@ -35,8 +36,9 @@ class PackageDep:
 
 
 class Package:
-    def __init__(self, name, version):
+    def __init__(self, name, version, metadata=None):
         self.name = name
+        self.metadata = metadata
         if type(version) == str:
             self.version = Version(version)
         else:
@@ -67,6 +69,12 @@ class PackageGraph(list):
             if sanitize_name(pkg.name) == name:
                 return pkg
 
+    def match(self, req):
+        dep = PackageDep(req)
+        for pkg in self:
+            if pkg.name == dep.name and dep.matches_version(pkg.version):
+                return pkg
+
 
 class App:
     def __init__(self):
@@ -90,6 +98,7 @@ class App:
         )
 
     def create_virtualenv(self, path, interpreter):
+        ui.info('Setting up a virtualenv in', ui.bold(path))
         create_environment(
             path,
             site_packages=False,
@@ -114,7 +123,7 @@ class App:
                 dist_info = os.path.join(self.site_packages, dir)
                 dists = pkg_resources.distributions_from_metadata(dist_info)
                 for dist in dists:
-                    pkg = Package(sanitize_name(dist.project_name), dist.version)
+                    pkg = Package(sanitize_name(dist.project_name), dist.version, metadata=dist)
                     pkg.deps = sorted((PackageDep(x) for x in dist.requires()), key=lambda x: str(x))
                     pkgs.append(pkg)
 
@@ -131,8 +140,39 @@ class App:
         return PackageGraph(sorted(pkgs, key=lambda x: x.name))
 
     def perform_install(self, spec):
-        command = InstallCommand()
-        command.main(['--no-deps', '--target', self.site_packages, '--ignore-installed', '--upgrade', spec])
+        install_queue = [Requirement(spec)]
+        pkgs = self.load_dependency_graph()
+        while len(install_queue):
+            req = install_queue.pop(0)
+            pkg = pkgs.find(req.name)
+            if pkg:
+                if PackageDep(req).matches_version(pkg.version):
+                    ui.info(self._req_str(req), 'is already installed as', self._pkg_str(pkg))
+                    continue
+                else:
+                    ui.info('Removing', self._pkg_str(pkg))
+                    self._uninstall_single_pkg(pkg)
+            ui.info('Installing', self._req_str(req))
+            command = InstallCommand()
+            command.main(['--no-deps', '--target', self.site_packages, '--ignore-installed', '--upgrade', str(req)])
+            pkgs = self.load_dependency_graph()
+            pkg = pkgs.match(req)
+            for dep in pkg.deps:
+                if not dep.resolved_to:
+                    install_queue.append(dep.req)
+
+    def _uninstall_single_pkg(self, pkg):
+        entries = pkg.metadata.get_metadata('RECORD').splitlines()
+        for line in entries:
+            path = line.split(',')[0]
+            path = os.path.join(self.site_packages, path)
+            if os.path.exists(path):
+                os.unlink(path)
+                if len(os.listdir(os.path.split(path)[0])) == 0:
+                    os.rmdir(os.path.split(path)[0])
+
+    def _req_str(self, req):
+        return ui.bold(req.name) + ui.cyan(str(req.specifier) or '(any)')
 
     def _pkg_str(self, pkg):
         return ui.bold(pkg.name) + ui.cyan('@' + str(pkg.version))

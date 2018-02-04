@@ -5,7 +5,8 @@ from contextlib import contextmanager
 from .ansi import strip_ansi
 
 styles = {
-    'info': ['info ', 'cyan'],
+    'debug': ['debug', 'white'],
+    'info': ['info ', 'green'],
     'warn': ['warn ', 'yellow'],
     'error': ['error', 'red'],
 }
