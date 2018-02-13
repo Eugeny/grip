@@ -2,7 +2,7 @@ import pkg_resources
 import os
 import sys
 import grip.ui as ui
-from pip.commands import InstallCommand, UninstallCommand
+from pip.commands import InstallCommand
 from pip.download import PipSession
 from pip.index import PackageFinder
 from pip.locations import USER_CACHE_DIR
@@ -11,8 +11,14 @@ import multiprocessing.pool
 from pip._vendor.packaging.version import Version
 from pip._vendor.packaging.requirements import Requirement
 from pip.req.req_file import parse_requirements
+from pip.req.req_install import InstallRequirement
 
 from virtualenv import create_environment
+
+
+PROJECT_PKG = '<project>'
+USER_PKG = '<you>'
+SYSTEM_PKGS = ['wheel', 'setuptools', 'pip']
 
 
 def sanitize_name(name):
@@ -20,16 +26,36 @@ def sanitize_name(name):
 
 
 class PackageDep:
-    def __init__(self, req):
-        self.req = req
+    def __init__(self, req, parent=None):
+        self.url = None
+        if isinstance(req, InstallRequirement):
+            self.req = req.req
+            if req.link:
+                self.url = req.link.url
+        elif isinstance(req, str):
+            self.req = Requirement(req)
+        else:
+            self.req = req
+        self.parent = parent
         self.resolved_to = None
+        self.potential_candidate = None
 
     @property
     def name(self):
         return sanitize_name(self.req.name)
 
+    @property
+    def specifier(self):
+        return self.req.specifier
+
     def matches_version(self, version):
         return len(list(self.req.specifier.filter([str(version)]))) > 0
+
+    def to_pip_spec(self):
+        if self.url:
+            return f'{self.url}#egg={str(self.req)}'
+        else:
+            return str(self.req)
 
     def __str__(self):
         return str(self.req)
@@ -44,6 +70,8 @@ class Package:
         else:
             self.version = version
         self.deps = []
+        self.incoming = []
+        self.incoming_mismatched = []
 
     def __str__(self):
         return f'{self.name}@{self.version}'
@@ -63,6 +91,10 @@ class Package:
 
 
 class PackageGraph(list):
+    def __init__(self, items=[]):
+        list.__init__(self, items)
+        self.requirements = []
+
     def find(self, name):
         name = sanitize_name(name)
         for pkg in self:
@@ -80,14 +112,17 @@ class App:
     def __init__(self):
         self.interactive = False
         self.virtualenv = None
+        self.requirements = None
         self.site_packages = sys.path[-1]
         if 'VIRTUAL_ENV' in os.environ:
             self.set_virtualenv(os.environ['VIRTUAL_ENV'])
 
         self.session = PipSession(cache=os.path.join(USER_CACHE_DIR, 'http'))
+        self.index_url = 'https://pypi.org/simple/'
+
         self.finder = PackageFinder(
             [],
-            ['https://pypi.org/simple/'],
+            [self.index_url],
             session=self.session
         )
 
@@ -116,6 +151,19 @@ class App:
             if os.path.exists(os.path.join(subpath, 'bin', 'activate')):
                 return subpath
 
+    def locate_requirements(self, path=None):
+        candidates = ['requirements.txt', 'REQUIREMENTS']
+        if not path:
+            path = os.getcwd()
+
+        for candidate in candidates:
+            subpath = os.path.join(path, candidate)
+            if os.path.exists(subpath):
+                return subpath
+
+    def set_requirements(self, path):
+        self.requirements = path
+
     def load_dependency_graph(self):
         pkgs = []
         for dir in os.listdir(self.site_packages):
@@ -124,42 +172,156 @@ class App:
                 dists = pkg_resources.distributions_from_metadata(dist_info)
                 for dist in dists:
                     pkg = Package(sanitize_name(dist.project_name), dist.version, metadata=dist)
-                    pkg.deps = sorted((PackageDep(x) for x in dist.requires()), key=lambda x: str(x))
+                    pkg.deps = sorted((PackageDep(x, pkg) for x in dist.requires()), key=lambda x: str(x))
                     pkgs.append(pkg)
 
+        graph = PackageGraph(sorted(pkgs, key=lambda x: x.name))
+        if self.requirements:
+            graph.requirements = Package(PROJECT_PKG, None)
+            graph.requirements.deps = list(PackageDep(x, graph.requirements) for x in parse_requirements(self.requirements, session=self.session))
+            graph.requirements.deps = sorted(graph.requirements.deps, key=lambda x: str(x))
+
         # resolve deps
-        for pkg in pkgs:
+        for pkg in graph + [graph.requirements]:
             for dep in pkg.deps:
                 dep.resolved_to = None
-                for candidate in pkgs:
+                for candidate in graph:
                     if candidate.name == dep.name:
                         if dep.matches_version(candidate.version):
                             dep.resolved_to = candidate
+                            candidate.incoming.append(dep)
                             break
+                        else:
+                            dep.potential_candidate = candidate
+                            candidate.incoming_mismatched.append(dep)
 
-        return PackageGraph(sorted(pkgs, key=lambda x: x.name))
+        return graph
 
-    def perform_install(self, specs):
-        install_queue = [Requirement(spec) for spec in specs]
+    def perform_check(self, silent=False):
         pkgs = self.load_dependency_graph()
+        problem_counter = 0
+
+        for pkg in pkgs:
+            if pkg.name in SYSTEM_PKGS:
+                continue
+
+            if len(pkg.incoming_mismatched) > 0:
+                if not silent:
+                    print(' -', self._pkg_str(pkg), '(installed)')
+                    for index, dep in enumerate(pkg.incoming + pkg.incoming_mismatched):
+                        print('  ', '├──' if (index < len(pkg.incoming + pkg.incoming_mismatched) - 1) else '└──', end='')
+                        print(
+                            ui.bold(ui.green('[ok]') if dep in pkg.incoming else ui.yellow('[mismatch]')),
+                            self._req_str(dep, name=False),
+                            'required by',
+                            self._pkg_str(dep.parent, version=False)
+                        )
+                    print()
+                problem_counter += 1
+
+            if len(pkg.incoming + pkg.incoming_mismatched) == 0:
+                if not silent:
+                    print(' -', self._pkg_str(pkg), '(installed)')
+                    print('   └──', ui.bold(ui.red('extraneous')))
+                    print()
+                problem_counter += 1
+
+        if problem_counter:
+            ui.warn(problem_counter, 'dependency problems found')
+            if silent:
+                ui.warn('Run', ui.bold('grip check'), 'for more information')
+        elif not silent:
+            ui.info('No problems found')
+
+    def perform_prune(self):
+        pkgs = self.load_dependency_graph()
+
+        for pkg in pkgs:
+            if pkg.name in SYSTEM_PKGS:
+                continue
+
+            if len(pkg.incoming + pkg.incoming_mismatched) == 0:
+                ui.info('Removing', self._pkg_str(pkg))
+                self._uninstall_single_pkg(pkg)
+
+    def perform_freeze(self):
+        pkgs = self.load_dependency_graph()
+        for pkg in pkgs:
+            print(pkg.name + '==' + str(pkg.version))
+
+    def perform_install_requirements(self):
+        pkgs = self.load_dependency_graph()
+        self.perform_install(pkgs.requirements.deps)
+
+    def perform_install(self, deps):
+        install_queue = deps[:]
+        graph = self.load_dependency_graph()
         while len(install_queue):
-            req = install_queue.pop(0)
-            pkg = pkgs.find(req.name)
-            if pkg:
-                if PackageDep(req).matches_version(pkg.version):
-                    ui.info(self._req_str(req), 'is already installed as', self._pkg_str(pkg))
-                    continue
-                else:
-                    ui.info('Removing', self._pkg_str(pkg))
-                    self._uninstall_single_pkg(pkg)
-            ui.info('Installing', self._req_str(req))
-            command = InstallCommand()
-            command.main(['--no-deps', '--target', self.site_packages, '--ignore-installed', '--upgrade', str(req)])
+            dep = install_queue.pop(0)
+            install_spec = self._get_single_dep_install_spec(dep, graph=graph, downgrade=(dep in deps))
+            if install_spec:
+                command = InstallCommand()
+                command.main(['--no-deps', '--index-url', self.index_url, '--target', self.site_packages, '--ignore-installed', '--upgrade', install_spec])
+            else:
+                continue
+
             pkgs = self.load_dependency_graph()
-            pkg = pkgs.match(req)
-            for dep in pkg.deps:
-                if not dep.resolved_to:
-                    install_queue.append(dep.req)
+            pkg = pkgs.match(dep)
+            if pkg:
+                for sub_dep in pkg.deps:
+                    if not sub_dep.resolved_to:
+                        install_queue.append(sub_dep)
+
+    def _get_single_dep_install_spec(self, dep, graph=None, downgrade=False):
+        if not graph:
+            graph = self.load_dependency_graph()
+
+        installed_pkg = graph.find(dep.name)
+        if installed_pkg and PackageDep(dep).matches_version(installed_pkg.version):
+            ui.info(self._req_str(dep), 'is already installed as', self._pkg_str(installed_pkg))
+            return
+
+        if dep.url:
+            install_spec = dep.to_pip_spec()
+            install_version = None
+        else:
+            candidates = self._candidates_for(dep)
+            best_candidate = self._best_candidate_of(dep, candidates)
+            if not best_candidate:
+                ui.error('No packages available for', self._req_str(dep))
+                latest = self._best_candidate_of(None, candidates)
+                if latest:
+                    ui.error('latest:', latest.version)
+                ui.error(f'all: https://pypi.org/project/{dep.name}/#history')
+                sys.exit(1)
+
+            install_spec = f'{dep.name}=={str(best_candidate.version)}'
+            install_version = best_candidate.version
+
+        if not dep.url and installed_pkg and not PackageDep(dep).matches_version(installed_pkg.version):
+            ui.warn('Dependency mismatch')
+            print(' -', self._pkg_str(installed_pkg), '(installed)')
+            if len(installed_pkg.incoming):
+                print('   └ required by', self._pkg_str(installed_pkg.incoming[0].parent, version=False))
+            print(' -', self._req_str(dep), '(requested)')
+            print('   └ required by', self._pkg_str(dep.parent, version=False))
+            if installed_pkg.version < best_candidate.version:
+                ui.warn('Will upgrade')
+            elif not downgrade:
+                ui.warn('Will not downgrade')
+                return
+            else:
+                ui.warn('Will downgrade')
+
+        if installed_pkg:
+            ui.info('Removing', self._pkg_str(installed_pkg))
+            self._uninstall_single_pkg(installed_pkg)
+
+        ui.info('Installing', self._pkg_str(Package(dep.name, install_version)))
+        if dep.url:
+            ui.info('Using URL:', ui.bold(dep.url))
+
+        return install_spec
 
     def perform_uninstall(self, packages):
         pkgs = self.load_dependency_graph()
@@ -181,11 +343,19 @@ class App:
                 if len(os.listdir(os.path.split(path)[0])) == 0:
                     os.rmdir(os.path.split(path)[0])
 
-    def _req_str(self, req):
-        return ui.bold(req.name) + ui.cyan(str(req.specifier) or '(any)')
+    def _req_str(self, req, name=True, version=True):
+        if req.url:
+            return ui.bold(req.url)
+        return (ui.bold(req.name) if name else '') + (ui.cyan(str(req.specifier) or '(any)') if version else '')
 
-    def _pkg_str(self, pkg):
-        return ui.bold(pkg.name) + ui.cyan('@' + str(pkg.version))
+    def _pkg_str(self, pkg, name=True, version=True):
+        if not pkg:
+            return ui.red('none')
+        if pkg.name == PROJECT_PKG:
+            return ui.cyan(ui.bold(pkg.name))
+        if pkg.name == USER_PKG:
+            return ui.green(ui.bold(pkg.name))
+        return (ui.bold(pkg.name) if name else '') + (ui.cyan('@' + str(pkg.version)) if version else '')
 
     def perform_list(self):
         pkgs = self.load_dependency_graph()
@@ -200,37 +370,57 @@ class App:
                 else:
                     print(ui.red('→ none'))
 
-    def perform_outdated(self):
-        pkgs = self.load_dependency_graph()
-        reqs = list(parse_requirements('requirements.txt', session=self.session))
+    def _candidates_for(self, dep):
+        return self.finder.find_all_candidates(dep.name)
 
-        def process_single(req):
-            # TODO
-            pip.utils.logging._log_state.indentation = 0
-
-            installed = pkgs.find(req.name)
-
-            if not installed:
-                return
-
-            all_candidates = self.finder.find_all_candidates(req.name)
+    def _best_candidate_of(self, dep, candidates):
+        if dep:
             compatible_versions = set(
-                req.req.specifier.filter(
-                    [str(c.version) for c in all_candidates],
+                dep.req.specifier.filter(
+                    [str(c.version) for c in candidates],
                     prereleases=False
                 )
             )
 
-            applicable_candidates = [
-                c for c in all_candidates if str(c.version) in compatible_versions
-            ]
+            if len(compatible_versions) == 0:
+                compatible_versions = set(
+                    dep.req.specifier.filter(
+                        [str(c.version) for c in candidates],
+                        prereleases=True
+                    )
+                )
 
-            best_candidate = None
-            best_release = None
-            if applicable_candidates:
-                best_candidate = max(applicable_candidates, key=self.finder._candidate_sort_key)
-            if all_candidates:
-                best_release = max(all_candidates, key=self.finder._candidate_sort_key)
+            applicable_candidates = [
+                c for c in candidates if str(c.version) in compatible_versions
+            ]
+        else:
+            applicable_candidates = candidates
+
+        if not len(applicable_candidates):
+            return None
+
+        return max(applicable_candidates, key=self.finder._candidate_sort_key)
+
+    def perform_outdated(self):
+        pkgs = self.load_dependency_graph()
+        if self.requirements:
+            deps = pkgs.requirements.deps
+        else:
+            deps = [PackageDep(Requirement(x.name)) for x in pkgs]
+
+        def process_single(dep):
+            # TODO
+            pip.utils.logging._log_state.indentation = 0
+
+            installed = pkgs.find(dep.name)
+
+            if not installed:
+                return
+
+            candidates = self._candidates_for(dep)
+
+            best_candidate = self._best_candidate_of(dep, candidates)
+            best_release = self._best_candidate_of(None, candidates)
 
             if best_release and (not installed or best_release.version > installed.version):
                 return (
@@ -241,7 +431,7 @@ class App:
 
         import click
         with multiprocessing.pool.ThreadPool(processes=16) as pool:
-            with click.progressbar(pool.imap_unordered(process_single, reqs), length=len(reqs), label='Checking latest versions') as bar:
+            with click.progressbar(pool.imap_unordered(process_single, deps), length=len(deps), label='Checking latest versions') as bar:
                 results = [x for x in bar if x]
 
         rows = []
@@ -252,5 +442,7 @@ class App:
                 ui.green(best_release) if best_release and best_release > installed.version else ui.darkwhite(best_release),
             ))
 
-        ui.table(['Installed', 'Available', 'Latest'], rows)
+        if len(rows):
+            ui.table(['Installed', 'Available', 'Latest'], rows)
+
         ui.info(ui.bold(str(len(results))), 'outdated packages')
