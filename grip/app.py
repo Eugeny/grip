@@ -139,8 +139,8 @@ class App:
 
         return PackageGraph(sorted(pkgs, key=lambda x: x.name))
 
-    def perform_install(self, spec):
-        install_queue = [Requirement(spec)]
+    def perform_install(self, specs):
+        install_queue = [Requirement(spec) for spec in specs]
         pkgs = self.load_dependency_graph()
         while len(install_queue):
             req = install_queue.pop(0)
@@ -160,6 +160,16 @@ class App:
             for dep in pkg.deps:
                 if not dep.resolved_to:
                     install_queue.append(dep.req)
+
+    def perform_uninstall(self, packages):
+        pkgs = self.load_dependency_graph()
+        for name in packages:
+            pkg = pkgs.find(name)
+            if pkg:
+                ui.info('Removing', self._pkg_str(pkg))
+                self._uninstall_single_pkg(pkg)
+            else:
+                ui.error(ui.bold(name), 'is not installed')
 
     def _uninstall_single_pkg(self, pkg):
         entries = pkg.metadata.get_metadata('RECORD').splitlines()

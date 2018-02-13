@@ -66,15 +66,28 @@ def cli(glob=False, cwd=None, interactive=False):
 
 
 @cli.command()
-@click.argument('package')
-def install(package=None):
-    app.perform_install(package)
+@click.argument('packages', nargs=-1)
+def install(packages=None):
+    app.perform_install(packages)
+
+
+@cli.command()
+@click.argument('packages', nargs=-1)
+def uninstall(packages=None):
+    app.perform_uninstall(packages)
 
 
 @cli.command('list')
 def cmd_list():
     app.perform_list()
 
+
+@cli.command()
+def outdated():
+    app.perform_outdated()
+
+
+'''
 
 def load_installed(path):
     installed = {}
@@ -85,7 +98,6 @@ def load_installed(path):
             for dist in dists:
                 installed[pkg_resources.safe_name(dist.project_name).lower()] = dist
     return installed
-
 
 @cli.command()
 def sync():
@@ -158,8 +170,4 @@ def sync():
         print()
 
     click.echo('Synching')
-
-
-@cli.command()
-def outdated():
-    app.perform_outdated()
+'''
