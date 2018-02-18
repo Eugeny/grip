@@ -1,0 +1,193 @@
+doctype html
+html
+    head
+        title grip - Better Package Management
+        link(rel='stylesheet',  href='https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css')
+        link(rel='stylesheet', href='https://cdn.jsdelivr.net/npm/source-sans-pro@2/source-sans-pro.min.css')
+        link(rel='stylesheet', href='https://cdn.jsdelivr.net/npm/source-code-pro@2/source-code-pro.min.css')
+
+    style.
+        body { font-family: 'Source Code Pro'; }
+        .ws { white-space: pre; }
+        .output { padding: 0 0 0 20px; margin: 20px 10px; border-left: 1px solid #ddd; }
+
+    body
+        header.mb-5
+            .container
+                h1 grip
+                hr
+                .text-info Better package management for Python
+                small
+                    i Does what pip should have been doing by now.
+
+        article.mb-4
+            .container
+                h3.text-danger About
+                p
+                    strong grip
+                    |  is a drop-in extension wrapper for pip that adds commands like&nbsp;
+                    code install --save
+                    |,&nbsp;
+                    code check
+                    |  and&nbsp;
+                    code run
+                    | , takes a virtualenv-first approach and doesn't need a wonky&nbsp;
+                    code source venv/bin/activate
+                    | .
+                p
+                    a(href='https://github.com/eugeny/grip', target='_blank') [GitHub]
+                    | &nbsp;
+                    a(href='https://github.com/eugeny/grip/issues', target='_blank') [Issues]
+                    | &nbsp;
+                    a(href='https://pypi.org/project/grip/', target='_blank') [PyPI]
+
+        article.mb-5
+            .container
+                h3.text-danger Setup
+                p Install it globally using pip:
+                input.form-control(type='text', value='sudo pip install pygrip', readonly, onfocus="this.select()")
+
+        .container
+            .examples
+                .row.mb-2
+                    .col
+                        h5.text-danger grip examples
+                        .text-muted ---
+                    .col
+                        h5.text-danger pip examples
+                        .text-muted ---
+
+                .row.mb-4
+                    .col
+                        .mb-1.text-muted # Installing dependencies
+                        div
+                            span.text-muted $&nbsp;
+                            span grip install
+                    .col
+                        .mb-1 &nbsp;
+                        div
+                            span.text-muted $&nbsp;
+                            span . venv/bin/activate
+                        div
+                            span.text-muted $&nbsp;
+                            span pip install -r requirements.txt
+
+                .row.mb-4
+                    .col
+                        .mb-1.text-muted # Adding packages
+                        div
+                            span.text-muted $&nbsp;
+                            span grip install -S django 'celery&gt;=3,&lt;4'
+                    .col
+                        .mb-1 &nbsp;
+                        div
+                            span.text-muted $&nbsp;
+                            span pip install django 'celery&gt;=3,&lt;4'
+                        div
+                            span.text-muted $&nbsp;
+                            span vi requirements.txt
+
+                .row.mb-4
+                    .col
+                        .mb-1.text-muted # Running
+                        div
+                            span.text-muted $&nbsp;
+                            span grip run pyflakes --statistics
+                    .col
+                        .mb-1 &nbsp;
+                        div
+                            span.text-muted $&nbsp;
+                            span . venv/bin/activate
+                        div
+                            span.text-muted $&nbsp;
+                            span pyflakes --statistics
+                        div
+                            span.text-muted # or
+                        div
+                            span.text-muted $&nbsp;
+                            span ./venv/bin/pyflakes --statistics
+
+                .row.mb-4
+                    .col
+                        .mb-1.text-muted # List installed
+                        div
+                            span.text-muted $&nbsp;
+                            span grip list
+                        .output
+                            div
+                                span.text-success info&nbsp;
+                                span 5 packages installed
+                            div
+                                strong &nbsp;- coloredlogs
+                                span.text-info @9.0
+                            div
+                                strong &nbsp;&nbsp;&nbsp;└──humanfriendly
+                                span.text-info &gt;=4.7
+                                span &nbsp;→&nbsp;
+                                span.text-danger none
+                            div
+                                strong &nbsp;- humanfriendly
+                                span.text-info @4.6
+                            div
+                                strong.text-warning warn&nbsp;
+                                span 1 dependency problem found
+                        div
+                            span.text-muted $&nbsp;
+                            span grip freeze
+                        .output
+                            div
+                                strong coloredlogs
+                                span.text-info ==9.0
+                            div
+                                strong humanfriendly
+                                span.text-info ==4.6
+
+                    .col
+                        .mb-1 &nbsp;
+                        div
+                            span.text-muted $&nbsp;
+                            span pip freeze
+                        .output
+                            div coloredlogs==9.0
+                            div humanfriendly==4.6
+
+                .mb-4
+                    .mb-1.text-muted # Checking for consistency
+                    div
+                        span.text-muted $&nbsp;
+                        span grip check
+                    .output
+                        div
+                            strong &nbsp;- humanfriendly
+                            span.text-info @4.6
+                            span &nbsp;(installed)
+                        div
+                            strong &nbsp;&nbsp;&nbsp;├──
+                            strong.text-success [ok]&nbsp;
+                            span.text-info ==4.6&nbsp;
+                            span required by&nbsp;
+                            strong.text-info -project-
+                        div
+                            strong &nbsp;&nbsp;&nbsp;└──
+                            strong.text-warning [mismatch]&nbsp;
+                            span.text-info &gt;=4.7&nbsp;
+                            span required by&nbsp;
+                            strong coloredlogs
+
+                .mb-4
+                    .mb-1.text-muted # Checking for updates
+                    div
+                        span.text-muted $&nbsp;
+                        span grip outdated
+                    .output
+                        .ws Installed          Available  Latest
+                        .text-muted ------------------------------------
+                        div
+                            strong humanfriendly
+                            span.text-info @4.6&nbsp;&nbsp;
+                            span.text-muted 4.6
+                            span.ws.text-success         4.8
+                        div
+                            br
+                            strong.text-success info&nbsp;
+                            span 1 outdated packages

@@ -1,0 +1,15 @@
+{
+  "name": "grip-website",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "build": "pug index.pug",
+    "watch": "pug -w index.pug"
+  },
+  "private": true,
+  "devDependencies": {
+    "pug": "^2.0.0-rc.4",
+    "pug-cli": "^1.0.0-alpha6"
+  }
+}
