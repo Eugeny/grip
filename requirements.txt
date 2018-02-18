@@ -1,6 +1,4 @@
-prompt-toolkit==1.0.15
-coloredlogs==8.0
-virtualenv==15.1.0
+virtualenv>=15.1.0
 
 #dev
 flake8==3.5.0

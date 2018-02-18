@@ -1,4 +1,3 @@
-import pkg_resources
 import os
 import sys
 import grip.ui as ui
@@ -8,104 +7,13 @@ from pip.index import PackageFinder
 from pip.locations import USER_CACHE_DIR
 import pip.utils.logging
 import multiprocessing.pool
-from pip._vendor.packaging.version import Version
 from pip._vendor.packaging.requirements import Requirement
 from pip.req.req_file import parse_requirements
-from pip.req.req_install import InstallRequirement
-
 from virtualenv import create_environment
 
-
-PROJECT_PKG = '<project>'
-USER_PKG = '<you>'
-SYSTEM_PKGS = ['wheel', 'setuptools', 'pip']
+from .model import Dependency, Package, PackageGraph
 
 
-def sanitize_name(name):
-    return pkg_resources.safe_name(name).lower()
-
-
-class PackageDep:
-    def __init__(self, req, parent=None):
-        self.url = None
-        if isinstance(req, InstallRequirement):
-            self.req = req.req
-            if req.link:
-                self.url = req.link.url
-        elif isinstance(req, str):
-            self.req = Requirement(req)
-        else:
-            self.req = req
-        self.parent = parent
-        self.resolved_to = None
-        self.potential_candidate = None
-
-    @property
-    def name(self):
-        return sanitize_name(self.req.name)
-
-    @property
-    def specifier(self):
-        return self.req.specifier
-
-    def matches_version(self, version):
-        return len(list(self.req.specifier.filter([str(version)]))) > 0
-
-    def to_pip_spec(self):
-        if self.url:
-            return f'{self.url}#egg={str(self.req)}'
-        else:
-            return str(self.req)
-
-    def __str__(self):
-        return str(self.req)
-
-
-class Package:
-    def __init__(self, name, version, metadata=None):
-        self.name = name
-        self.metadata = metadata
-        if type(version) == str:
-            self.version = Version(version)
-        else:
-            self.version = version
-        self.deps = []
-        self.incoming = []
-        self.incoming_mismatched = []
-
-    def __str__(self):
-        return f'{self.name}@{self.version}'
-
-    def __gt__(self, other):
-        return self.name > other.name
-
-    def prnt(self):
-        print(self)
-        for dep in self.deps:
-            print(' ', dep, end=' ')
-            if dep.resolved_to:
-                print('->', dep.resolved_to)
-            else:
-                print()
-        print()
-
-
-class PackageGraph(list):
-    def __init__(self, items=[]):
-        list.__init__(self, items)
-        self.requirements = []
-
-    def find(self, name):
-        name = sanitize_name(name)
-        for pkg in self:
-            if sanitize_name(pkg.name) == name:
-                return pkg
-
-    def match(self, req):
-        dep = PackageDep(req)
-        for pkg in self:
-            if pkg.name == dep.name and dep.matches_version(pkg.version):
-                return pkg
 
 
 class App:
@@ -165,36 +73,12 @@ class App:
         self.requirements = path
 
     def load_dependency_graph(self):
-        pkgs = []
-        for dir in os.listdir(self.site_packages):
-            if dir.endswith('.dist-info'):
-                dist_info = os.path.join(self.site_packages, dir)
-                dists = pkg_resources.distributions_from_metadata(dist_info)
-                for dist in dists:
-                    pkg = Package(sanitize_name(dist.project_name), dist.version, metadata=dist)
-                    pkg.deps = sorted((PackageDep(x, pkg) for x in dist.requires()), key=lambda x: str(x))
-                    pkgs.append(pkg)
+        graph = PackageGraph.from_directory(self.site_packages)
 
-        graph = PackageGraph(sorted(pkgs, key=lambda x: x.name))
         if self.requirements:
-            graph.requirements = Package(PROJECT_PKG, None)
-            graph.requirements.deps = list(PackageDep(x, graph.requirements) for x in parse_requirements(self.requirements, session=self.session))
-            graph.requirements.deps = sorted(graph.requirements.deps, key=lambda x: str(x))
+            graph.set_requirements(Dependency(x, graph.requirements) for x in parse_requirements(self.requirements, session=self.session))
 
-        # resolve deps
-        for pkg in graph + [graph.requirements]:
-            for dep in pkg.deps:
-                dep.resolved_to = None
-                for candidate in graph:
-                    if candidate.name == dep.name:
-                        if dep.matches_version(candidate.version):
-                            dep.resolved_to = candidate
-                            candidate.incoming.append(dep)
-                            break
-                        else:
-                            dep.potential_candidate = candidate
-                            candidate.incoming_mismatched.append(dep)
-
+        graph.resolve_dependencies()
         return graph
 
     def perform_check(self, silent=False):
@@ -202,7 +86,7 @@ class App:
         problem_counter = 0
 
         for pkg in pkgs:
-            if pkg.name in SYSTEM_PKGS:
+            if pkg.name in PackageGraph.SYSTEM_PKGS:
                 continue
 
             if len(pkg.incoming_mismatched) > 0:
@@ -237,7 +121,7 @@ class App:
         pkgs = self.load_dependency_graph()
 
         for pkg in pkgs:
-            if pkg.name in SYSTEM_PKGS:
+            if pkg.name in PackageGraph.SYSTEM_PKGS:
                 continue
 
             if len(pkg.incoming + pkg.incoming_mismatched) == 0:
@@ -247,7 +131,7 @@ class App:
     def perform_freeze(self):
         pkgs = self.load_dependency_graph()
         for pkg in pkgs:
-            print(pkg.name + '==' + str(pkg.version))
+            print(ui.bold(pkg.name) + ui.cyan('==' + str(pkg.version)))
 
     def perform_install_requirements(self):
         pkgs = self.load_dependency_graph()
@@ -277,7 +161,7 @@ class App:
             graph = self.load_dependency_graph()
 
         installed_pkg = graph.find(dep.name)
-        if installed_pkg and PackageDep(dep).matches_version(installed_pkg.version):
+        if installed_pkg and dep.matches_version(installed_pkg.version):
             ui.info(self._req_str(dep), 'is already installed as', self._pkg_str(installed_pkg))
             return
 
@@ -298,7 +182,7 @@ class App:
             install_spec = f'{dep.name}=={str(best_candidate.version)}'
             install_version = best_candidate.version
 
-        if not dep.url and installed_pkg and not PackageDep(dep).matches_version(installed_pkg.version):
+        if not dep.url and installed_pkg and not dep.matches_version(installed_pkg.version):
             ui.warn('Dependency mismatch')
             print(' -', self._pkg_str(installed_pkg), '(installed)')
             if len(installed_pkg.incoming):
@@ -351,9 +235,9 @@ class App:
     def _pkg_str(self, pkg, name=True, version=True):
         if not pkg:
             return ui.red('none')
-        if pkg.name == PROJECT_PKG:
+        if pkg.name == PackageGraph.PROJECT_PKG:
             return ui.cyan(ui.bold(pkg.name))
-        if pkg.name == USER_PKG:
+        if pkg.name == PackageGraph.USER_PKG:
             return ui.green(ui.bold(pkg.name))
         return (ui.bold(pkg.name) if name else '') + (ui.cyan('@' + str(pkg.version)) if version else '')
 
@@ -406,7 +290,7 @@ class App:
         if self.requirements:
             deps = pkgs.requirements.deps
         else:
-            deps = [PackageDep(Requirement(x.name)) for x in pkgs]
+            deps = [Dependency(Requirement(x.name)) for x in pkgs]
 
         def process_single(dep):
             # TODO

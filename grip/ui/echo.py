@@ -1,13 +1,11 @@
-import sys
 from termcolor import colored
 from click import getchar
-from contextlib import contextmanager
 from .ansi import strip_ansi
 
 styles = {
     'debug': ['debug', 'white'],
-    'info': ['info ', 'green'],
-    'warn': ['warn ', 'yellow'],
+    'info': [' info', 'green'],
+    'warn': [' warn', 'yellow'],
     'error': ['error', 'red'],
 }
 
@@ -46,7 +44,7 @@ for color in colors:
 
 def yn(*parts):
     print(
-        colored(' (?) ', 'blue', attrs=['bold']),
+        colored('  (?)', 'blue', attrs=['bold']),
         *parts,
         end=' ',
     )
@@ -64,16 +62,23 @@ def yn(*parts):
 
 def prompt(*parts, default=None, validate=lambda x: x):
     while True:
+        default_s = ''
+        if default:
+            default_s = colored(f'({default})', 'white', attrs=['dark'])
+
         print(
-            colored(' (?) ', 'blue', attrs=['bold']),
+            colored('  (?)', 'blue', attrs=['bold']),
             *parts,
-            colored(':', 'cyan'),
+            default_s + colored(':', 'cyan'),
             end=' ',
             flush=True,
         )
+
         result = input()
+
         if not result:
             return default
+
         try:
             result = validate(result)
         except Exception as e:
