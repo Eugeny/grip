@@ -23,6 +23,10 @@ class Dependency:
         self.resolved_to = None
         self.potential_candidate = None
 
+    @staticmethod
+    def exact(package):
+        return Dependency(f'{package.name}=={package.version}')
+
     @property
     def name(self):
         return Package.sanitize_name(self.req.name)
@@ -34,14 +38,11 @@ class Dependency:
     def matches_version(self, version):
         return len(list(self.req.specifier.filter([str(version)]))) > 0
 
-    def to_pip_spec(self):
+    def __str__(self):
         if self.url:
             return f'{self.url}#egg={str(self.req)}'
         else:
             return str(self.req)
-
-    def __str__(self):
-        return str(self.req)
 
     def __gt__(self, other):
         return self.name > other.name

@@ -3,3 +3,5 @@ __pycache__
 venv
 *.egg-info
 dist
+.coverage
+_coverage

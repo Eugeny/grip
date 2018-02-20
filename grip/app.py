@@ -7,9 +7,9 @@ from pip._vendor.packaging.requirements import Requirement
 from virtualenv import create_environment
 import grip.ui as ui
 
-from .model import Dependency, PackageGraph, Package
+from .model import Dependency, PackageGraph
 from .requirements import RequirementsTxt
-from .planner import Planner, RemoveAction, InstallAction, FailAction
+from .planner import Planner, RemoveAction, InstallAction, FailAction, SaveAction
 from .index import Index
 
 
@@ -75,9 +75,18 @@ class App:
     def run_actions(self, actions):
         for action in actions:
             if isinstance(action, InstallAction):
-                ui.info('Installing', ui.pkg(Package(action.dependency.name, action.version)))
+                ui.info('Installing', ui.dep(action.dependency))
                 command = InstallCommand()
-                command.main(['--no-deps', '--index-url', self.index_url, '--target', self.site_packages, '--ignore-installed', '--upgrade', action.spec])
+                command.main([
+                    '--no-deps',
+                    '--index-url', self.index_url,
+                    '--prefix', self.virtualenv,
+                    '--ignore-installed',
+                    '--upgrade',
+                    str(action.dependency)
+                ])
+            if isinstance(action, SaveAction):
+                self.requirements.add(action.spec)
             if isinstance(action, FailAction):
                 sys.exit(1)
             if isinstance(action, RemoveAction):
@@ -91,9 +100,20 @@ class App:
                         if len(os.listdir(os.path.split(path)[0])) == 0:
                             os.rmdir(os.path.split(path)[0])
 
+    def perform_run(self, binary, args):
+        if not self.virtualenv:
+            ui.error('No virtualenv available')
+            sys.exit(1)
+        path = os.path.join(self.virtualenv, 'bin', binary)
+        if not os.path.exists(path):
+            ui.error(path, 'does not exist')
+            sys.exit(1)
+        os.execvp(path, [binary] + list(args))
+
     def perform_check(self, silent=False):
         pkgs = self.load_dependency_graph()
         problem_counter = 0
+        extraneous_counter = 0
 
         for pkg in pkgs:
             if pkg.name in PackageGraph.SYSTEM_PKGS:
@@ -114,17 +134,17 @@ class App:
                 problem_counter += 1
 
             if len(pkg.incoming + pkg.incoming_mismatched) == 0:
+                extraneous_counter += 1
                 if not silent:
                     print(' -', ui.pkg(pkg), '(installed)')
-                    print('   └──', ui.bold(ui.red('extraneous')))
+                    print('   └──', ui.bold(ui.yellow('extraneous')))
                     print()
-                problem_counter += 1
 
         if problem_counter:
             ui.warn(problem_counter, 'dependency problems found')
             if silent:
                 ui.warn('Run', ui.bold('grip check'), 'for more information')
-        elif not silent:
+        elif not silent and not extraneous_counter:
             ui.info('No problems found')
 
     def perform_freeze(self):
@@ -143,11 +163,8 @@ class App:
         while len(install_queue):
             dep = install_queue.pop(0)
 
-            actions = list(Planner(graph, self.index).install(dep, downgrade=(dep in direct_deps)))
+            actions = list(Planner(graph, self.index).install(dep, downgrade=(dep in direct_deps), save=save))
             self.run_actions(actions)
-
-            if save and dep in direct_deps:
-                self.requirements.add(dep)
 
             graph = self.load_dependency_graph()
             pkg = graph.match(dep)

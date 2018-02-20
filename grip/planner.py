@@ -1,8 +1,9 @@
 from collections import namedtuple
 import grip.ui as ui
-from .model import PackageGraph
+from .model import PackageGraph, Package, Dependency
 
-InstallAction = namedtuple('InstallAction', ['dependency', 'spec', 'version'])
+InstallAction = namedtuple('InstallAction', ['dependency'])
+SaveAction = namedtuple('SaveAction', ['spec'])
 RemoveAction = namedtuple('RemoveAction', ['package'])
 FailAction = namedtuple('FailAction', [])
 
@@ -13,12 +14,15 @@ class Planner:
         self.index = index
 
     def prune(self):
+        for_removal = []
         for pkg in self.graph:
             if pkg.name in PackageGraph.SYSTEM_PKGS:
                 continue
 
-            if len(pkg.incoming + pkg.incoming_mismatched) == 0:
-                yield RemoveAction(pkg)
+            if all(x in for_removal for x in (pkg.incoming + pkg.incoming_mismatched)):
+                for_removal.append(pkg)
+
+        yield from (RemoveAction(pkg) for pkg in for_removal)
 
     def remove(self, packages):
         for name in packages:
@@ -28,15 +32,17 @@ class Planner:
             else:
                 ui.error(ui.bold(name), 'is not installed')
 
-    def install(self, dep, downgrade=False):
+    def install(self, dep, downgrade=False, save=False):
         installed_pkg = self.graph.find(dep.name)
         if installed_pkg and dep.matches_version(installed_pkg.version):
             ui.info(ui.dep(dep), 'is already installed as', ui.pkg(installed_pkg))
+            if save:
+                resolved_dep = Dependency.exact(installed_pkg)
+                yield SaveAction(resolved_dep)
             return
 
         if dep.url:
-            install_spec = dep.to_pip_spec()
-            install_version = None
+            resolved_dep = dep
         else:
             candidates = self.index.candidates_for(dep)
             best_candidate = self.index.best_candidate_of(dep, candidates)
@@ -48,8 +54,7 @@ class Planner:
                 ui.error(f'all: https://pypi.org/project/{dep.name}/#history')
                 yield FailAction()
 
-            install_spec = f'{dep.name}=={str(best_candidate.version)}'
-            install_version = best_candidate.version
+            resolved_dep = Dependency.exact(Package(dep.name, best_candidate.version))
 
         if not dep.url and installed_pkg and not dep.matches_version(installed_pkg.version):
             ui.warn('Dependency mismatch')
@@ -69,4 +74,6 @@ class Planner:
         if installed_pkg:
             yield RemoveAction(installed_pkg)
 
-        yield InstallAction(dep, install_spec, install_version)
+        yield InstallAction(resolved_dep)
+        if save:
+            yield SaveAction(resolved_dep)

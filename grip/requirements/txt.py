@@ -28,9 +28,10 @@ class RequirementsTxt(Requirements):
                 yield req, line_number
 
     def add(self, dependency):
+        self.remove(dependency.name)
         with open(self.path, 'r') as f:
             content = f.read()
-        content = content.rstrip('\n') + '\n' + str(dependency.req)
+        content = content.rstrip('\n') + '\n' + str(dependency) + '\n'
         with open(self.path, 'w') as f:
             f.write(content)
 
@@ -40,8 +41,8 @@ class RequirementsTxt(Requirements):
                 with open(self.path, 'r') as f:
                     content = f.read()
                 lines = content.splitlines()
-                lines.pop(line_number)
-                content = '\n'.join(lines)
+                lines.pop(line_number - 1)
+                content = '\n'.join(lines) + '\n'
                 with open(self.path, 'w') as f:
                     f.write(content)
                 return

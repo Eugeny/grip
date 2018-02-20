@@ -76,6 +76,17 @@ def cli(glob=False, cwd=None, interactive=False, requirements_path=None):
         ui.debug('Requirements file:', app.requirements)
 
 
+@cli.command('run', help='Run a virtualenv binary')
+@click.argument('command', metavar='<command>')
+@click.argument('args', metavar='<args>', nargs=-1)
+def cmd_run(command=None, args=[]):
+    '''
+    Runs a binary provided by one of the installed packages
+    '''
+    app.perform_run(command, args)
+
+
+
 @cli.command('check', help='Check consistency')
 def cmd_check():
     '''
