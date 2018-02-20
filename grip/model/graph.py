@@ -15,6 +15,9 @@ class PackageGraph(list):
         self.requirements = Package(PackageGraph.PROJECT_PKG, None)
 
     def set_requirements(self, deps):
+        deps = list(deps)
+        for dep in deps:
+            dep.parent = self.requirements
         self.requirements.deps = sorted(deps)
 
     @staticmethod

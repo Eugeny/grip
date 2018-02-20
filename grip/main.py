@@ -6,6 +6,7 @@ import grip.ui as ui
 from .app import App
 from .cli import AliasedGroup
 from .model import PackageGraph, Package, Dependency
+from .requirements import RequirementsTxt
 
 app = App()
 CONTEXT_SETTINGS = { 'help_option_names': ['-h', '--help'] }
@@ -17,10 +18,10 @@ ALIASES = {
 @click.option('--global', '-g', 'glob', is_flag=True, default=False, help='Act on the global site, not the local virtualenv')
 @click.option('--cwd', '-d', default=None, help='Working directory')
 @click.option('--interactive/--noninteractive', '-i/-n', default=lambda: os.isatty(0), help='Allow user interaction')
-@click.option('--requirements', '-r', default=None, help='Requirements file')
-def cli(glob=False, cwd=None, interactive=False, requirements=None):
-    if requirements:
-        requirements = os.path.abspath(requirements)
+@click.option('--requirements', '-r', 'requirements_path', default=None, help='Requirements file')
+def cli(glob=False, cwd=None, interactive=False, requirements_path=None):
+    if requirements_path:
+        requirements_path = os.path.abspath(requirements_path)
 
     if cwd:
         os.chdir(cwd)
@@ -61,13 +62,16 @@ def cli(glob=False, cwd=None, interactive=False, requirements=None):
 
     ui.debug('Operating on:', app.site_packages)
 
-    if not requirements:
+    if requirements_path:
+        if not os.path.exists(requirements_path):
+            ui.error(requirements_path, 'does not exist')
+            sys.exit(1)
+
+        requirements = RequirementsTxt(requirements_path)
+    else:
         requirements = app.locate_requirements()
 
     if requirements:
-        if not os.path.exists(requirements):
-            ui.error(requirements, 'does not exist')
-            sys.exit(1)
         app.set_requirements(requirements)
         ui.debug('Requirements file:', app.requirements)
 
@@ -99,7 +103,8 @@ def cmd_freeze():
 
 @cli.command('install', help='Install dependencies')
 @click.argument('packages', metavar='<dependencies>', nargs=-1)
-def cmd_install(packages=None):
+@click.option('--save', '-S', is_flag=True, help='Add to the requirements file')
+def cmd_install(packages=None, save=False):
     '''
     Installs listed dependencies
 
@@ -117,7 +122,7 @@ def cmd_install(packages=None):
     '''
     if len(packages):
         parent = Package(PackageGraph.USER_PKG, None)
-        app.perform_install([Dependency(spec, parent=parent) for spec in packages])
+        app.perform_install([Dependency(spec, parent=parent) for spec in packages], save=save)
     elif app.requirements:
         app.perform_install_requirements()
     else:
