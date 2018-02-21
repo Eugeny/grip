@@ -3,14 +3,14 @@ import pkg_resources
 
 
 class Package:
-    def __init__(self, name, version, metadata=None):
+    def __init__(self, name, version, metadata=None, deps=None):
         self.name = Package.sanitize_name(name)
         self.metadata = metadata
         if type(version) == str:
             self.version = Version(version)
         else:
             self.version = version
-        self.deps = []
+        self.deps = deps or []
         self.incoming = []
         self.incoming_mismatched = []
 
@@ -30,3 +30,6 @@ class Package:
 
     def __gt__(self, other):
         return self.name > other.name
+
+    def __repr__(self):
+        return f'<Package: {self.name}@{self.version}>'

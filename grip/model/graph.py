@@ -10,9 +10,10 @@ class PackageGraph(list):
     USER_PKG = '-you-'
     SYSTEM_PKGS = ['wheel', 'setuptools', 'pip']
 
-    def __init__(self, items=[]):
+    def __init__(self, items=[], requirements=[]):
         list.__init__(self, items)
         self.requirements = Package(PackageGraph.PROJECT_PKG, None)
+        self.set_requirements(requirements)
 
     def set_requirements(self, deps):
         deps = list(deps)
@@ -46,7 +47,6 @@ class PackageGraph(list):
                 return pkg
 
     def resolve_dependencies(self):
-        # resolve deps
         for pkg in self + [self.requirements]:
             for dep in pkg.deps:
                 dep.resolved_to = None
