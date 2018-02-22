@@ -1,11 +1,13 @@
 import os
 import sys
+import subprocess
 from pip.commands import InstallCommand
 import pip.utils.logging
 import multiprocessing.pool
 from pip._vendor.packaging.requirements import Requirement
 from virtualenv import create_environment
 import grip.ui as ui
+import grip.templates as templates
 
 from .model import Dependency, PackageGraph
 from .requirements import RequirementsTxt
@@ -99,6 +101,56 @@ class App:
                         os.unlink(path)
                         if len(os.listdir(os.path.split(path)[0])) == 0:
                             os.rmdir(os.path.split(path)[0])
+
+    def perform_init(self):
+        default_url = 'http://example.com'
+        try:
+            default_url = subprocess.check_output(['git', 'config', 'remote.origin.url']).decode().strip()
+            if 'git@' in default_url:
+                default_url = default_url.replace(':', '/')
+                default_url = default_url.replace('git@', 'https://')
+            if default_url.endswith('.git'):
+                default_url = default_url[:-4]
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            pass
+
+        default_author = 'ACME Inc.'
+        default_email = 'info@acme.inc'
+        try:
+            default_author = subprocess.check_output(['git', 'config', 'user.name']).decode().strip()
+            default_email = subprocess.check_output(['git', 'config', 'user.email']).decode().strip()
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            pass
+
+        vars = {}
+        for key, prompt, default in (
+            ('name', 'PyPI project name', os.path.basename(os.getcwd())),
+            ('version', 'Version', '1.0.0'),
+            ('description', 'Short description', 'FooBar Enhanced Edition'),
+            ('url', 'Project URL', default_url),
+            ('author', 'Author', default_author),
+            ('author_email', 'E-mail', default_email),
+            ('package', 'Root Python package name', os.path.basename(os.getcwd()).replace('-', '_')),
+        ):
+            vars[key] = ui.prompt(prompt, default=default)
+
+        if not os.path.exists(vars['package']):
+            os.mkdir(vars['package'])
+
+        for name, template in (
+            ('setup.py', templates.setup_py),
+            ('setup.cfg', templates.setup_cfg),
+            ('.gitignore', templates.gitignore),
+            ('requirements.txt', ''),
+            (os.path.join(vars['package'], '__init__.py'), templates.package_init),
+        ):
+            if os.path.exists(name):
+                ui.warn(ui.bold(name), 'already exists')
+            else:
+                ui.info('writing', ui.bold(name))
+                with open(name, 'w') as f:
+                    f.write(template.format(**vars))
+
 
     def perform_run(self, binary, args):
         if not self.virtualenv:

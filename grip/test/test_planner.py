@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import Mock
 from grip.model import PackageGraph, Package, Dependency
 from grip.index import Index
 from grip.planner import Planner, InstallAction, RemoveAction, SaveAction, FailAction
@@ -41,4 +42,44 @@ class TestPackageGraph(unittest.TestCase):
     def test_install_index(self):
         p = self.mkplanner()
         p.index = Index('')
-        pkgs = [Package('django', '1.0'), Package('django', '2.0'), Package('django', '3.0-beta')]
+        pkgs = [Package('new', '1.0'), Package('new', '2.0'), Package('new', '3.0-beta')]
+        for pkg in pkgs:
+            pkg.location = Mock()
+            pkg.location.is_wheel = False
+        p.index.candidates_for = Mock(return_value=pkgs)
+        plan = list(p.install(Dependency('New>=2')))
+        self.assertTrue(isinstance(plan[0], InstallAction))
+        self.assertEquals(str(plan[0].dependency), 'new==2.0')
+
+    def test_install_upgrade(self):
+        p = self.mkplanner()
+        p.index = Index('')
+        pkgs = [Package('django', '3.0')]
+        for pkg in pkgs:
+            pkg.location = Mock()
+            pkg.location.is_wheel = False
+        p.index.candidates_for = Mock(return_value=pkgs)
+        plan = list(p.install(Dependency('django>=3.0')))
+        self.assertTrue(isinstance(plan[0], RemoveAction))
+        self.assertTrue(isinstance(plan[1], InstallAction))
+        self.assertEquals(plan[0].package.name, 'django')
+        self.assertEquals(str(plan[1].dependency), 'django==3.0')
+
+    def test_install_downgrade(self):
+        p = self.mkplanner()
+        p.index = Index('')
+        pkgs = [Package('django', '2.0')]
+        for pkg in pkgs:
+            pkg.location = Mock()
+            pkg.location.is_wheel = False
+        p.index.candidates_for = Mock(return_value=pkgs)
+
+        plan = list(p.install(Dependency('django==2.0')))
+        self.assertEquals(len(plan), 0)
+
+        plan = list(p.install(Dependency('django==2.0'), downgrade=True))
+        self.assertEquals(len(plan), 2)
+        self.assertTrue(isinstance(plan[0], RemoveAction))
+        self.assertTrue(isinstance(plan[1], InstallAction))
+        self.assertEquals(plan[0].package.name, 'django')
+        self.assertEquals(str(plan[1].dependency), 'django==2.0')

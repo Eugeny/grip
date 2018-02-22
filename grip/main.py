@@ -11,6 +11,7 @@ from .requirements import RequirementsTxt
 app = App()
 CONTEXT_SETTINGS = { 'help_option_names': ['-h', '--help'] }
 ALIASES = {
+    'ls': 'list',
     'remove': 'uninstall',
 }
 
@@ -74,6 +75,14 @@ def cli(glob=False, cwd=None, interactive=False, requirements_path=None):
     if requirements:
         app.set_requirements(requirements)
         ui.debug('Requirements file:', app.requirements)
+
+
+@cli.command('init', help='Set up a new project')
+def cmd_init():
+    '''
+    Sets up a new PyPI project in the current folder
+    '''
+    app.perform_init()
 
 
 @cli.command('run', help='Run a virtualenv binary')
