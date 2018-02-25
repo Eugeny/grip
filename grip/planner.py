@@ -33,9 +33,9 @@ class Planner:
             elif not self.quiet:
                 ui.error(ui.bold(name), 'is not installed')
 
-    def install(self, dep, downgrade=False, save=False):
+    def install(self, dep, upgrade=False, downgrade=False, save=False):
         installed_pkg = self.graph.find(dep.name)
-        if installed_pkg and dep.matches_version(installed_pkg.version):
+        if installed_pkg and dep.matches_version(installed_pkg.version) and not upgrade:
             if not self.quiet:
                 ui.info(ui.dep(dep), 'is already installed as', ui.pkg(installed_pkg))
             if save:

@@ -124,7 +124,8 @@ def cmd_freeze():
 @cli.command('install', help='Install dependencies')
 @click.argument('packages', metavar='<dependencies>', nargs=-1)
 @click.option('--save', '-S', is_flag=True, help='Add to the requirements file')
-def cmd_install(packages=None, save=False):
+@click.option('--upgrade', '-U', is_flag=True, help='Upgrade already installed packages')
+def cmd_install(packages=None, save=False, upgrade=False):
     '''
     Installs listed dependencies
 
@@ -142,7 +143,7 @@ def cmd_install(packages=None, save=False):
     '''
     if len(packages):
         parent = Package(PackageGraph.USER_PKG, None)
-        app.perform_install([Dependency(spec, parent=parent) for spec in packages], save=save)
+        app.perform_install([Dependency(spec, parent=parent) for spec in packages], save=save, upgrade=upgrade)
     elif app.requirements:
         app.perform_install_requirements()
     else:

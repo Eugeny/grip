@@ -208,14 +208,14 @@ class App:
         graph = self.load_dependency_graph()
         self.perform_install(graph.requirements.deps)
 
-    def perform_install(self, deps, save=False):
+    def perform_install(self, deps, upgrade=False, save=False):
         direct_deps = deps
         install_queue = deps[:]
         graph = self.load_dependency_graph()
         while len(install_queue):
             dep = install_queue.pop(0)
 
-            actions = list(Planner(graph, self.index).install(dep, downgrade=(dep in direct_deps), save=save))
+            actions = list(Planner(graph, self.index).install(dep, upgrade=upgrade, downgrade=(dep in direct_deps), save=save))
             self.run_actions(actions)
 
             graph = self.load_dependency_graph()
