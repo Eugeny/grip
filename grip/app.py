@@ -1,11 +1,15 @@
+import multiprocessing.pool
 import os
 import sys
 import subprocess
-from pip.commands import InstallCommand
+from urllib.parse import urlparse
+from urllib.request import urlretrieve
+
 import pip.utils.logging
-import multiprocessing.pool
+from pip.commands import InstallCommand
 from pip._vendor.packaging.requirements import Requirement
 from virtualenv import create_environment
+
 import grip.ui as ui
 import grip.templates as templates
 
@@ -151,7 +155,6 @@ class App:
                 with open(name, 'w') as f:
                     f.write(template.format(**vars))
 
-
     def perform_run(self, binary, args):
         if not self.virtualenv:
             ui.error('No virtualenv available')
@@ -224,6 +227,19 @@ class App:
                 for sub_dep in pkg.deps:
                     if not sub_dep.resolved_to:
                         install_queue.append(sub_dep)
+
+    def perform_download(self, deps):
+        for dep in deps:
+            candidates = self.index.candidates_for(dep)
+            best_candidate = self.index.best_candidate_of(dep, candidates)
+            if not best_candidate:
+                ui.error('No packages available for', ui.dep(dep))
+                sys.exit(1)
+
+            url = best_candidate.location.url
+            name = os.path.basename(urlparse(url).path)
+            ui.info('Downloading', ui.bold(name))
+            urlretrieve(url, name)
 
     def perform_prune(self):
         graph = self.load_dependency_graph()

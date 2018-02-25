@@ -152,6 +152,20 @@ def cmd_install(packages=None, save=False, upgrade=False):
     app.perform_check(silent=True)
 
 
+@cli.command('download', help='Download dependency packages')
+@click.argument('dependencies', metavar='<dependencies>', nargs=-1)
+def cmd_download(dependencies=None):
+    '''
+    Downloads packages from PyPI into the current directory
+
+    Example:
+
+     grip download django==2.0
+    '''
+    app.perform_download([Dependency(x) for x in dependencies])
+
+
+
 @cli.command('uninstall', help='Remove packages')
 @click.argument('packages', metavar='<package names>', nargs=-1)
 def cmd_uninstall(packages=None):
