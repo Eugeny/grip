@@ -25,9 +25,10 @@ setup(
     url='https://eugeny.github.io/grip',
     packages=find_packages('.'),
     install_requires=[
+        'pip>=9.0.1,<9.1.0',
+        'virtualenv>=15.1.0',
         'termcolor>=1.1.0',
         'click>=6.7',
-        'virtualenv>=15.1.0',
     ],
     entry_points='''
         [console_scripts]
