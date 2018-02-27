@@ -9,7 +9,7 @@ html
     style.
         body { font-family: 'Source Code Pro'; }
         .ws { white-space: pre; }
-        .output { padding: 0 0 0 20px; margin: 20px 10px; border-left: 1px solid #ddd; }
+        .output { padding: 0 0 0 20px; margin: 10px 10px 20px; border-left: 1px solid #ddd; }
 
     body
         header.mb-5
@@ -44,6 +44,9 @@ html
         article.mb-5
             .container
                 h3.text-danger Setup
+                p
+                    strong grip
+                    |  requires Python 3.6 or later
                 p Install it globally using pip:
                 input.form-control(type='text', value='sudo pip install pygrip', readonly, onfocus="this.select()")
 
@@ -151,6 +154,36 @@ html
                             div coloredlogs==9.0
                             div humanfriendly==4.6
 
+                .row.mb-4
+                    .col
+                        .mb-1.text-muted # Downloading packages
+                        div
+                            span.text-muted $&nbsp;
+                            span grip download django==2.0
+                        .output
+                            div
+                                span.text-success info
+                                span  downloading
+                                strong  Django-2.0-py3-none-any.whl
+
+                        div
+                            span.text-muted $&nbsp;
+                            span grip download --source django==2.0
+                        .output
+                            div
+                                span.text-success info
+                                span  downloading
+                                strong  Django-2.0.tar.gz
+
+                    .col
+                        .mb-1 &nbsp;
+                        div
+                            span.text-muted $&nbsp;
+                            span pip download --only-binary=:all: django==2.0
+                        div
+                            span.text-muted $&nbsp;
+                            span pip download django==2.0
+
                 .mb-4
                     .mb-1.text-muted # Checking for consistency
                     div
@@ -191,3 +224,20 @@ html
                             br
                             strong.text-success info&nbsp;
                             span 1 outdated packages
+
+
+                .mb-4
+                    .mb-1.text-muted # Figuring out why something is installed
+                    div
+                        span.text-muted $&nbsp;
+                        span grip why amqp
+                    .output
+                        div
+                            strong amqp
+                            span.text-info @1.4.9
+                            span  ←
+                            strong  kombu
+                            span.text-info @3.0.37
+                            span  ←
+                            strong  celery
+                            span.text-info @3.1.0
