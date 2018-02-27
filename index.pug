@@ -3,8 +3,8 @@ html
     head
         title grip - Better Package Management
         link(rel='stylesheet',  href='https://cdn.jsdelivr.net/npm/bootstrap@4/dist/css/bootstrap.min.css')
-        link(rel='stylesheet', href='https://cdn.jsdelivr.net/npm/source-sans-pro@2/source-sans-pro.min.css')
         link(rel='stylesheet', href='https://cdn.jsdelivr.net/npm/source-code-pro@2/source-code-pro.min.css')
+            link(rel='stylesheet', href='https://cdn.jsdelivr.net/npm/source-sans-pro@2/source-sans-pro.min.css')
 
     style.
         body { font-family: 'Source Code Pro'; }
@@ -241,3 +241,11 @@ html
                             span  ←
                             strong  celery
                             span.text-info @3.1.0
+
+        script(async, src="https://www.googletagmanager.com/gtag/js?id=UA-102720146-3")
+        script.
+          window.dataLayer = window.dataLayer || [];
+          function gtag(){dataLayer.push(arguments);}
+          gtag('js', new Date());
+
+          gtag('config', 'UA-102720146-3');
