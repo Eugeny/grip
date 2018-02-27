@@ -1,5 +1,7 @@
-from .txt import RequirementsTxt
+from .txt import TxtRequirements
+from .setup import SetupPyRequirements
 
 __all__ = [
-    'RequirementsTxt',
+    'TxtRequirements',
+    'SetupPyRequirements',
 ]

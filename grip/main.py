@@ -1,12 +1,11 @@
 import os
 import click
-import subprocess
 import sys
 import grip.ui as ui
 from .app import App
 from .cli import AliasedGroup
 from .model import PackageGraph, Package, Dependency
-from .requirements import RequirementsTxt
+from .requirements import TxtRequirements
 
 app = App()
 CONTEXT_SETTINGS = { 'help_option_names': ['-h', '--help'] }
@@ -30,45 +29,20 @@ def cli(glob=False, cwd=None, interactive=False, requirements_path=None):
 
     app.interactive = interactive
 
+    '''
     if glob:
         if app.virtualenv:
             ui.error('Cannot act on the global site when running inside a virtualenv shell.')
             ui.error('Run `deactivate` first.')
             sys.exit(1)
-    else:
-        virtualenv = app.locate_virtualenv()
-        if virtualenv:
-            app.set_virtualenv(virtualenv)
-        else:
-            ui.warn('Could not find a local virtualenv.')
-            if app.interactive:
-                if ui.yn('Create one?'):
-                    def validate_interpreter(name):
-                        try:
-                            subprocess.check_call([name, '-V'])
-                        except:
-                            raise Exception('Could not find %s' % name)
-
-                    name = ui.prompt('Folder name', default='venv')
-                    interpreter = ui.prompt('Interpreter', default='python3', validate=validate_interpreter)
-                    path = os.path.join(os.getcwd(), name)
-                    app.create_virtualenv(path, interpreter)
-                    app.set_virtualenv(path)
-                else:
-                    ui.error('Aborting.')
-                    sys.exit(1)
-            else:
-                ui.error('Aborting.')
-                sys.exit(1)
-
-    ui.debug('Operating on:', app.site_packages)
+    '''
 
     if requirements_path:
         if not os.path.exists(requirements_path):
             ui.error(requirements_path, 'does not exist')
             sys.exit(1)
 
-        requirements = RequirementsTxt(requirements_path)
+        requirements = TxtRequirements(requirements_path)
     else:
         requirements = app.locate_requirements()
 
@@ -82,6 +56,7 @@ def cmd_init():
     '''
     Sets up a new PyPI project in the current folder
     '''
+    app.ensure_virtualenv()
     app.perform_init()
 
 
@@ -101,6 +76,7 @@ def cmd_check():
     '''
     Checks all dependencies for consistency and looks for extraneous packages
     '''
+    app.ensure_virtualenv()
     app.perform_check()
 
 
@@ -109,6 +85,7 @@ def cmd_prune():
     '''
     Removes packages not required by anything
     '''
+    app.ensure_virtualenv()
     app.perform_prune()
     app.perform_check(silent=True)
 
@@ -118,6 +95,7 @@ def cmd_freeze():
     '''
     Lists every installed package and its version
     '''
+    app.ensure_virtualenv()
     app.perform_freeze()
 
 
@@ -141,6 +119,7 @@ def cmd_install(packages=None, save=False, upgrade=False):
 
       grip -r reqs-test.txt install
     '''
+    app.ensure_virtualenv()
     if len(packages):
         parent = Package(PackageGraph.USER_PKG, None)
         app.perform_install([Dependency(spec, parent=parent) for spec in packages], save=save, upgrade=upgrade)
@@ -153,8 +132,9 @@ def cmd_install(packages=None, save=False, upgrade=False):
 
 
 @cli.command('download', help='Download dependency packages')
+@click.option('--source', is_flag=True, help='Download source package only')
 @click.argument('dependencies', metavar='<dependencies>', nargs=-1)
-def cmd_download(dependencies=None):
+def cmd_download(dependencies=None, source=False):
     '''
     Downloads packages from PyPI into the current directory
 
@@ -162,7 +142,7 @@ def cmd_download(dependencies=None):
 
      grip download django==2.0
     '''
-    app.perform_download([Dependency(x) for x in dependencies])
+    app.perform_download([Dependency(x) for x in dependencies], source=source)
 
 
 
@@ -176,6 +156,7 @@ def cmd_uninstall(packages=None):
 
      grip uninstall django
     '''
+    app.ensure_virtualenv()
     app.perform_uninstall(packages)
     app.perform_check(silent=True)
 
@@ -185,6 +166,7 @@ def cmd_list():
     '''
     Lists installed packages and their dependencies
     '''
+    app.ensure_virtualenv()
     app.perform_list()
     app.perform_check(silent=True)
 
@@ -194,4 +176,19 @@ def cmd_outdated():
     '''
     Checks for the newest versions of the installed packages
     '''
+    app.ensure_virtualenv()
     app.perform_outdated()
+
+
+@cli.command('why', help='Figure out the dependency chain')
+@click.argument('package', metavar='<package>')
+def cmd_why(package=None):
+    '''
+    Figures out why a package was installed and what depends on it
+
+    Example:
+
+     grip why six
+    '''
+    app.ensure_virtualenv()
+    app.perform_why(package)

@@ -13,8 +13,11 @@ class Index:
             session=self.session
         )
 
-    def candidates_for(self, dep):
-        return self.finder.find_all_candidates(dep.name)
+    def candidates_for(self, dep, source=False):
+        candidates = self.finder.find_all_candidates(dep.name)
+        if source:
+            candidates = [x for x in candidates if not x.location.is_wheel]
+        return candidates
 
     def best_candidate_of(self, dep, candidates):
         if dep:

@@ -1,3 +1,5 @@
+from contextlib import contextmanager
+import logging
 import multiprocessing.pool
 import os
 import sys
@@ -14,9 +16,20 @@ import grip.ui as ui
 import grip.templates as templates
 
 from .model import Dependency, PackageGraph
-from .requirements import RequirementsTxt
+from .requirements import TxtRequirements, SetupPyRequirements
 from .planner import Planner, RemoveAction, InstallAction, FailAction, SaveAction
 from .index import Index
+
+
+
+@contextmanager
+def pip_progress():
+    with ui.log_line() as log:
+        def emit(self, record):
+            log(record.getMessage())
+
+        logging.StreamHandler.emit = emit
+        yield
 
 
 class App:
@@ -24,12 +37,35 @@ class App:
         self.interactive = False
         self.virtualenv = None
         self.requirements = None
+        self.cached_requirements = None
         self.site_packages = sys.path[-1]
         if 'VIRTUAL_ENV' in os.environ:
             self.set_virtualenv(os.environ['VIRTUAL_ENV'])
 
         self.index_url = 'https://pypi.org/simple/'
         self.index = Index(self.index_url)
+
+    def ensure_virtualenv(self):
+        virtualenv = self.locate_virtualenv()
+        if virtualenv:
+            self.set_virtualenv(virtualenv)
+        else:
+            ui.warn('Could not find a local virtualenv.')
+            if self.interactive and ui.yn('Create one?'):
+                def validate_interpreter(name):
+                    try:
+                        subprocess.check_call([name, '-V'])
+                    except:
+                        raise Exception('Could not find %s' % name)
+
+                name = ui.prompt('Folder name', default='venv')
+                interpreter = ui.prompt('Interpreter', default='python3', validate=validate_interpreter)
+                path = os.path.join(os.getcwd(), name)
+                self.create_virtualenv(path, interpreter)
+                self.set_virtualenv(path)
+            else:
+                ui.error('Aborting.')
+                sys.exit(1)
 
     def set_virtualenv(self, path):
         self.virtualenv = path
@@ -57,14 +93,18 @@ class App:
                 return subpath
 
     def locate_requirements(self, path=None):
-        candidates = ['requirements.txt', 'REQUIREMENTS']
+        candidates = ['requirements.txt', 'REQUIREMENTS', 'requirements', 'requirements/default.txt']
         if not path:
             path = os.getcwd()
 
         for candidate in candidates:
             subpath = os.path.join(path, candidate)
-            if os.path.exists(subpath):
-                return RequirementsTxt(subpath)
+            if os.path.isfile(subpath):
+                return TxtRequirements(subpath)
+
+        setuppy = os.path.join(path, 'setup.py')
+        if os.path.isfile(setuppy):
+            return SetupPyRequirements(setuppy)
 
     def set_requirements(self, requirements):
         self.requirements = requirements
@@ -73,7 +113,9 @@ class App:
         graph = PackageGraph.from_directory(self.site_packages)
 
         if self.requirements:
-            graph.set_requirements(self.requirements.read())
+            if not self.cached_requirements:
+                self.cached_requirements = self.requirements.read()
+            graph.set_requirements(self.cached_requirements)
 
         graph.resolve_dependencies()
         return graph
@@ -83,14 +125,15 @@ class App:
             if isinstance(action, InstallAction):
                 ui.info('Installing', ui.dep(action.dependency))
                 command = InstallCommand()
-                command.main([
-                    '--no-deps',
-                    '--index-url', self.index_url,
-                    '--prefix', self.virtualenv,
-                    '--ignore-installed',
-                    '--upgrade',
-                    str(action.dependency)
-                ])
+                with pip_progress():
+                    command.main([
+                        '--no-deps',
+                        '--index-url', self.index_url,
+                        '--prefix', self.virtualenv,
+                        '--ignore-installed',
+                        '--upgrade',
+                        str(action.dependency)
+                    ])
             if isinstance(action, SaveAction):
                 self.requirements.add(action.spec)
             if isinstance(action, FailAction):
@@ -228,9 +271,9 @@ class App:
                     if not sub_dep.resolved_to:
                         install_queue.append(sub_dep)
 
-    def perform_download(self, deps):
+    def perform_download(self, deps, source=False):
         for dep in deps:
-            candidates = self.index.candidates_for(dep)
+            candidates = self.index.candidates_for(dep, source=source)
             best_candidate = self.index.best_candidate_of(dep, candidates)
             if not best_candidate:
                 ui.error('No packages available for', ui.dep(dep))
@@ -307,3 +350,16 @@ class App:
             ui.table(['Installed', 'Available', 'Latest'], rows)
 
         ui.info(ui.bold(str(len(results))), 'outdated packages')
+
+    def perform_why(self, package):
+        pkgs = self.load_dependency_graph()
+        pkg = pkgs.find(package)
+        if not pkg:
+            ui.error(package, 'is not installed')
+            sys.exit(1)
+        for dep in pkg.incoming:
+            print(ui.pkg(pkg), end='')
+            while dep:
+                print(' ←', ui.pkg(dep.parent), end='')
+                dep = (dep.parent.incoming + [None])[0]
+            print()

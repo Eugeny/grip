@@ -1,3 +1,5 @@
+import os
+from contextlib import contextmanager
 from termcolor import colored
 from click import getchar
 from .ansi import strip_ansi
@@ -103,3 +105,21 @@ def table(header, rows, pad=2):
             print(str(item) + ' ' * (max_w[index] + pad - len(strip_ansi(item))), end='')
         print()
     print()
+
+
+@contextmanager
+def log_line():
+    prefix = colored('  ... ', 'blue', attrs=['bold'])
+    width = os.get_terminal_size()[0] - 6
+    print(prefix)
+
+    def log(s):
+        print('\033[F\033[K', end='')
+        print(' ' * width + '\b' * width, end='')
+        print(prefix, end='')
+        s = s.replace('\n', ' ')
+        if len(s) > width:
+            s =  '...' + s[len(s) - width - 4:]
+        print(s)
+
+    yield log

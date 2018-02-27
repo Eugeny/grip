@@ -16,7 +16,7 @@ class Test(TestCommand):
 
 setup(
     name='pygrip',
-    version='0.3',
+    version='1.0.0a1',
     author='Eugene Pankov',
     author_email='e@ajenti.org',
     description='Better package management for Python',
