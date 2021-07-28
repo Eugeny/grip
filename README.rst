@@ -1,4 +1,4 @@
-**DEAD**: Use [Poetry](https://python-poetry.org/)
+**DEAD**:  Use Poetry: https://python-poetry.org/
 
 grip
 ====
